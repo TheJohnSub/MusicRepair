@@ -113,7 +113,7 @@ def add_lyrics_genius(file_path, song_title):
     return lyrics
 
 
-def fix_music(rename_format, norename, files):
+def fix_music(rename_format, norename, files, manual_repair):
     """ 
     Checks whether files already contain album art and album name tags or not. 
     If not, calls other functions to add album art, details.
@@ -132,9 +132,30 @@ def fix_music(rename_format, norename, files):
             print('> ' + file_path)
 
             try:
-                artist, album, song_name, albumart = musictools.get_metadata(file_name, SPOTIFY_CLIENT_ID , SPOTIFY_CLIENT_SECRET) 
+                #If manual repair, use user supplied metadata
+                if manual_repair['is_manual_repair']:
+
+                    #Iterate through dictionary to remove any missing metadata values from the rename_format.
+                    #For example, if rename_formate was "{title}{album}{artist}", but no album was supplied
+                    #by the user, the rename_format will become "{title}{artist}"
+                    #TODO: check for a method of iteration that will be compatible for Python 2.X and 3.X
+                    for key, value in manual_repair.iteritems():
+                        if key != "is_manual_repair" and not value:
+                            rename_format = rename_format.replace("{" + key + "}", "")
+
+                    artist = manual_repair['artist']
+                    album = manual_repair['album']
+                    song_name = manual_repair['title']
+                    albumart = None
+
+                    if not rename_format:
+                        norename = True    
+                else:
+                    artist, album, song_name, albumart = musictools.get_metadata(file_name, SPOTIFY_CLIENT_ID , SPOTIFY_CLIENT_SECRET) 
+
                 add_lyrics_genius(file_path, file_name)
-                musictools.add_album_art(file_path, albumart)
+                if albumart:
+                    musictools.add_album_art(file_path, albumart)
                 musictools.add_metadata(file_path, song_name, artist, album)
 
             except Exception as e:# MetadataNotFound
@@ -154,6 +175,7 @@ def fix_music(rename_format, norename, files):
                       album=album + ' -')
 
                 song_title = song_title[:-1] if song_title.endswith('-') else song_title
+                song_title = song_title.strip()
                 new_path = path.dirname(file_path) + '{}.mp3'.format(song_title)
 
                 rename(file_path, new_path)
@@ -195,6 +217,9 @@ def main():
     parser.add_argument('-d', '--dir', action='store', dest='repair_directory',
                         help='Specifies the directory where the music files are located\n\n')
 
+    parser.add_argument('-f', '--file', action='store', dest='repair_file',
+                        help='Specifies the directory where the music files are located\n\n')
+
     parser.add_argument('-R', '--recursive', action='store_true',
                         help='''Specifies whether or not to run recursively 
                         in the given music directory\n\n''')
@@ -206,6 +231,18 @@ def main():
     parser.add_argument('-n', '--norename', action='store_true',
                         help='Does not rename files to song title\n\n')
 
+    parser.add_argument('-m', '--manual', action='store_true', dest='manual_repair',
+                        help='Repairs music with user specified metadata\n\n')
+
+    parser.add_argument('--artist', action='store', dest='artist', default='',
+                        help='Specifies the name of the artist (for use in manual repair).\n\n')   
+
+    parser.add_argument('--album', action='store', dest='album', default='',
+                        help='Specifies the name of the album (for use in manual repair).\n\n')   
+
+    parser.add_argument('--title', action='store', dest='song', default='',
+                        help='Specifies the title of the song (for use in manual repair).\n\n')   
+
     parser.add_argument('--format', action='store', dest='rename_format',
                         help='''Specify the title format used in renaming, 
                         these keywords will be replaced respectively: 
@@ -216,6 +253,16 @@ def main():
     # Collect all the args
     music_dir = args.repair_directory or '.'
     revert_dir = args.revert_directory
+    manual_repair_bool = args.manual_repair
+    repair_file = args.repair_directory
+
+    #If manual repair mode is specified, create a dictionary of all metadata values.
+    if manual_repair_bool:
+        manual_repair = {'is_manual_repair': manual_repair_bool, 'artist': args.artist,
+                         'album': args.album, 'title': args.song}
+    else:
+        manual_repair = {'is_manual_repair': manual_repair_bool}
+
     recursive = args.recursive or False
     norename = args.norename or False
     rename_format = args.rename_format or '{title}' #Fallback to default format
@@ -233,7 +280,7 @@ def main():
     elif music_dir:
         chdir(music_dir or '.')
         files = list_files(recursive)
-        fix_music(rename_format, norename, files)
+        fix_music(rename_format, norename, files, manual_repair)
         open('musicrepair_log.txt', 'w')
         print('\n\nFinished repairing')
         
